@@ -29,6 +29,23 @@ cces <- read_rds("cces_initial.rds")
 
 2) What proportion of females voted for Trump? 
 
+```{r}
+cces %>%
+  arrange(desc(age)) %>%
+  head(1) %>%
+  pull(age)
+
+total <- cces %>%
+  filter(gender == "Female") %>%
+  nrow()
+
+fem_trump <- cces %>%
+  filter(gender == "Female" & trump == 1) %>%
+  nrow()
+
+fem_trump / total
+```
+
 
 # Scene 2
 
@@ -36,8 +53,34 @@ cces <- read_rds("cces_initial.rds")
 
 1) Print out the model with the confidence interval and interpret the coefficient of `gender`? (Hint: use the divide-by-four rule.) Explain the association of Trump-voting with variables like `income` and `party` to your smart-but-not-mathematical boss. Why doesn't income matter?
 
+Being female is associated with a 6-11% decrease in likelihood of voting for Trump
+Accounting for other variables including party and ideology, income doesn't matter in the regression.
+
 2) What is the expected vote for Dom - who is Male, 37, holds a 4-year degree (placing him in the 5 `educ` bucket), Asian, makes $77,000, with `ideology` and `party` equal to 3. (Hint: use predict().)
 
+```{r 2}
+
+cces
+
+logistic_mod <- logistic_reg() %>%
+  set_engine("glm")
+
+logistic_fit <- fit(logistic_mod, 
+                    trump ~ gender + age + educ + race + income + party + ideology, 
+                    data = cces)
+
+logistic_fit$fit %>% 
+  tidy(conf.int = TRUE) %>%
+  select(term, estimate, conf.low, conf.high)
+
+predict(logistic_fit, new_data = data.frame(gender = "Male", 
+                                    age = 37, 
+                                    educ = 5, 
+                                    race = "Asian", 
+                                    income = 8, 
+                                    party = 3, 
+                                    ideology = 3))
+```
 
 
 # Scene 3
@@ -46,9 +89,40 @@ cces <- read_rds("cces_initial.rds")
 
 1) Interpret the output of the CART model (Hint: set extra = "auto" in `prp()`.) Where would Dom fall in this decision tree? 
 
+If party < 4, then 6% of people in that category voted for Trump. If party >= 4, then 87% of people in that category voted for Trump.
+
 2) Looking at the randomForest model, what does the OOB error tell us? Interpret the first row, second column of the confusion matrix, what does that 920 represent? How does 920 relate to the class.error of 0.078?
 
+```{r 3}
+set.seed(1005)
 
+tree_mod <- decision_tree() %>%
+  set_engine("rpart", model = TRUE) %>%
+  set_mode("classification")
+
+cces_tree <- fit(
+  update(tree_mod, cost_complexity = 0.1),
+  trump ~ income + party + gender + age + educ + race + ideology,
+  data = cces
+)
+
+cces_tree$fit %>%
+  prp(extra = "auto", varlen = 0, faclen = 0)
+
+set.seed(1005)
+
+forest_mod <- rand_forest(mtry = 7, trees = 50) %>%
+  set_engine("randomForest") %>%
+  set_mode("classification")
+
+cces_forest <- fit(forest_mod,
+  trump ~ income + party + gender + age + educ + race + ideology,
+  data = cces
+)
+
+cces_forest
+
+```
 
 # Scene 4
 
@@ -57,4 +131,34 @@ cces <- read_rds("cces_initial.rds")
 1) Compare the accuracy of our three models, use bind_rows() to put the three in a nice tibble. Which model appears to be the best?
 
 2) So the randomforest model appears to be the best model, how can we test that this is true? What should we worry about?
+
+```{r 4}
+
+logistic <- predict(logistic_fit, new_data = cces) %>%
+  rename(logistic = .pred_class)
+
+tree <- predict(cces_tree, new_data = cces) %>%
+  rename(tree = .pred_class)
+
+forest <- predict(cces_forest, new_data = cces) %>%
+  rename(forest = .pred_class)
+
+log_accuracy <- bind_cols(cces, logistic, tree, forest) %>%
+  accuracy(trump, logistic)
+
+tree_accuracy <- bind_cols(cces, logistic, tree, forest) %>%
+  accuracy(trump, tree)
+
+forest_accuracy <- bind_cols(cces, logistic, tree, forest) %>%
+  accuracy(trump, forest)
+
+bind_rows(log_accuracy, tree_accuracy, forest_accuracy) %>%
+  mutate(model = c("logistic", "tree", "forest"))
+
+```
+
+
+
+
+
 
